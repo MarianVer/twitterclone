@@ -1,0 +1,53 @@
+version: '3.8'  # Можна прибрати (сучасні версії Docker не вимагають)
+
+services:
+  # Сервіс PostgreSQL
+  db:
+    image: postgres:15  # Офіційний образ PostgreSQL 15
+    environment:
+      POSTGRES_USER: django_user
+      POSTGRES_PASSWORD: yourpassword  # Змініть на свій пароль
+      POSTGRES_DB: twitterclone
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # Зберігає дані БД між перезапусками
+    ports:
+      - "5433:5432"  # Якщо порт зайнятий, змініть на "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U django_user -d twitterclone"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    environment:
+      - JAVA_OPTS=-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+
+  # Сервіс Django
+  web:
+    build: .  # Будує образ з Dockerfile у поточній папці
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8001"
+    volumes:
+      - .:/app  # Монтує код проекту в контейнер
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy  # Чекає, доки БД не стане доступною
+    environment:
+      DATABASE_URL: postgres://django_user:yourpassword@db:5432/twitterclone
+
+# Об'єм для збереження даних БД
+volumes:
+  pgdata:

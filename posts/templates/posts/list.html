@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Твіти</title>
+</head>
+<body>
+    <h1>Останні твіти</h1>
+    
+    {% for tweet in tweets %}
+    <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
+        <p><strong>{{ tweet.user.username }}</strong> - {{ tweet.created_at }}</p>
+        <p>{{ tweet.text }}</p>
+        
+        {% if tweet.image %}
+        <img src="{{ tweet.image.url }}" style="max-width: 200px;">
+        {% endif %}
+    </div>
+    {% empty %}
+    <p>Ще немає твітів. Створіть перший!</p>
+    {% endfor %}
+</body>
+</html>
