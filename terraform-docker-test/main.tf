@@ -4,6 +4,10 @@ terraform {
       source  = "kreuzwerker/docker"
       version = "~> 3.0.0"
     }
+    null = {
+      source = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -11,11 +15,28 @@ provider "docker" {
   host = "unix:///var/run/docker.sock"
 }
 
-resource "docker_network" "jenkins_net" {
-  name = "jenkins-network"
-  driver = "bridge"
+# Простий cleanup без sudo
+resource "null_resource" "cleanup" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Просте очищення без sudo
+      docker rm -f jenkins-master jenkins-agent 2>/dev/null || true
+      docker network rm jenkins-network 2>/dev/null || true
+      pkill -f "jenkins" || true
+    EOT
+    on_failure = continue  # Продовжити навіть якщо cleanup не вдасться
+  }
 }
 
+# Мережа
+resource "docker_network" "jenkins_net" {
+  name    = "jenkins-network"
+  driver  = "bridge"
+  
+  depends_on = [null_resource.cleanup]
+}
+
+# Jenkins Master
 resource "docker_image" "jenkins_master" {
   name = "jenkins/jenkins:lts-jdk17"
 }
@@ -25,10 +46,11 @@ resource "docker_container" "jenkins_master" {
   image = docker_image.jenkins_master.image_id
   
   networks_advanced {
-    name = docker_network.jenkins_net.name
+    name    = docker_network.jenkins_net.name
+    aliases = ["jenkins-master"]
   }
   
-  # АВТОМАТИЧНИЙ ВИБІР ПОРТУ (0 = Docker вибере вільний)
+  # Динамічний порт (Docker сам вибере вільний)
   ports {
     internal = 8080
     external = 0
@@ -40,8 +62,11 @@ resource "docker_container" "jenkins_master" {
   }
 
   restart = "unless-stopped"
+  
+  depends_on = [null_resource.cleanup]
 }
 
+# Jenkins Agent
 resource "docker_image" "jenkins_agent" {
   name = "jenkins/inbound-agent:jdk17"
 }
@@ -51,7 +76,8 @@ resource "docker_container" "jenkins_agent" {
   image = docker_image.jenkins_agent.image_id
   
   networks_advanced {
-    name = docker_network.jenkins_net.name
+    name    = docker_network.jenkins_net.name
+    aliases = ["jenkins-agent"]
   }
   
   env = [
@@ -66,16 +92,16 @@ resource "docker_container" "jenkins_agent" {
     container_path = "/var/run/docker.sock"
   }
 
-  restart = "unless-stopped"
+  restart = "always"
   depends_on = [docker_container.jenkins_master]
 }
 
 variable "jenkins_secret" {
   description = "Secret from Jenkins UI"
   type        = string
+  sensitive   = true
 }
 
-# Output для отримання реального порту
 output "jenkins_url" {
   value = "http://localhost:${docker_container.jenkins_master.ports[0].external}"
 }
