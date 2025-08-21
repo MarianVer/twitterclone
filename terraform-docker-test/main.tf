@@ -33,7 +33,85 @@ resource "docker_network" "jenkins_net" {
   name    = "jenkins-network"
   driver  = "bridge"
   
-  depends_on = [null_resource.cleanup]
+  # Запобігає перестворенню мережі при оновленні
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy       = false  # Дозволяє видаляти, але не випадково
+  }
+  
+  # Додаткові налаштування для стабільності
+  options = {
+    com.docker.network.bridge.name = "jenkins-bridge"
+  }
+  
+  labels = {
+    environment = "production"
+    managed-by  = "terraform"
+  }
+}
+
+# База даних (додайте якщо є)
+resource "docker_container" "database" {
+  name  = "jenkins-db"
+  image = "postgres:13"
+  
+  networks_advanced {
+    name = docker_network.jenkins_net.name
+  }
+  
+  env = [
+    "POSTGRES_DB=jenkins",
+    "POSTGRES_USER=jenkins",
+    "POSTGRES_PASSWORD=your_password"
+  ]
+  
+  volumes {
+    host_path      = "/home/acer/jenkins_db_data"
+    container_path = "/var/lib/postgresql/data"
+  }
+
+  # Життєвий цикл - запобігає перестворенню без потреби
+  lifecycle {
+    ignore_changes = [
+      image,  # Не перестворювати при оновленні образу
+      networks_advanced  # Не чіпати мережу
+    ]
+  }
+  
+  restart = "unless-stopped"
+}
+
+# Jenkins Master з оптимізацією
+resource "docker_container" "jenkins_master" {
+  name  = "jenkins-master"
+  image = docker_image.jenkins_master.image_id
+  
+  networks_advanced {
+    name    = docker_network.jenkins_net.name
+    aliases = ["jenkins-master"]
+  }
+  
+  ports {
+    internal = 8080
+    external = 8080  # Фіксований порт для стабільності
+  }
+  
+  volumes {
+    host_path      = "/home/acer/jenkins_home"
+    container_path = "/var/jenkins_home"
+  }
+
+  # Життєвий цикл - запобігає перестворенню
+  lifecycle {
+    ignore_changes = [
+      image,
+      networks_advanced,
+      ports  # Не змінювати порти після створення
+    ]
+  }
+  
+  restart = "unless-stopped"
+  depends_on = [docker_container.database]  # Чекає на БД
 }
 
 # Jenkins Master
